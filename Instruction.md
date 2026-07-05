@@ -1,205 +1,334 @@
-Phase 1 — Create IAM Roles
-Step 1. Create EC2 IAM Role
-Open
-AWS Console → IAM → Roles → Create Role
-Choose
-AWS Service
-Select
+# MonitorX – AWS Infrastructure Monitoring, Alerting & Audit Logging Platform
+
+## Overview
+This project demonstrates a production-style AWS monitoring solution using Amazon EC2, CloudWatch, CloudWatch Agent, SNS, Lambda, S3, and CloudTrail. It monitors CPU, memory, and disk utilization, triggers automated alerts, stores alert events in Amazon S3, and records AWS account activity for auditing.
+
+---
+
+# Architecture
+
 EC2
-Attach policies
-CloudWatchAgentServerPolicy
-AmazonSSMManagedInstanceCore
-Role Name
-MonitorX-EC2-Role
-Create Role.
-
-Step 2. Create Lambda Role
-IAM
-Create Role
-Choose
+↓
+CloudWatch Agent
+↓
+CloudWatch Metrics
+↓
+CloudWatch Alarms
+↓
 Lambda
-Attach
-AWSLambdaBasicExecutionRole
-AmazonSNSFullAccess
-Name
-MonitorX-Lambda-Role
+↓
+SNS
+↓
+Email Notification
 
-Phase 2 — Launch Ubuntu EC2
-Launch
-Ubuntu 24.04 LTS
-Instance type
-t2.micro
-Attach IAM Role
+CloudTrail
+↓
+S3 Audit Logs
+
+---
+
+# AWS Services Used
+
+- Amazon EC2
+- Amazon CloudWatch
+- CloudWatch Agent
+- Amazon SNS
+- AWS Lambda
+- Amazon S3
+- AWS CloudTrail
+- AWS IAM
+
+---
+
+# Prerequisites
+
+- AWS Account
+- Ubuntu 24.04 EC2 Instance
+- AWS CLI (optional)
+- SSH Key Pair
+
+---
+
+# Phase 1 – Create IAM Roles
+
+## EC2 Role
+
+Create an IAM Role for EC2.
+
+Attach Policies:
+
+- CloudWatchAgentServerPolicy
+- AmazonSSMManagedInstanceCore
+
+Role Name:
+
+```
 MonitorX-EC2-Role
-Allow
-SSH (22)
+```
 
-HTTP (optional)
-Launch instance.
-SSH into server
-ssh -i key.pem ubuntu@Public-IP
+---
 
-Phase 3 — Install CloudWatch Agent
+## Lambda Role
+
+Create an IAM Role for Lambda.
+
+Attach Policies:
+
+- AWSLambdaBasicExecutionRole
+- AmazonSNSFullAccess
+
+Role Name:
+
+```
+MonitorX-Lambda-Role
+```
+
+---
+
+# Phase 2 – Launch EC2
+
+Launch:
+
+- Ubuntu 24.04 LTS
+- t2.micro
+- Attach IAM Role:
+  - MonitorX-EC2-Role
+
+Security Group:
+
+- SSH (22)
+- HTTP (Optional)
+
+Connect:
+
+```bash
+ssh -i key.pem ubuntu@<PUBLIC-IP>
+```
+
+---
+
+# Phase 3 – Install CloudWatch Agent
+
 Update packages
+
+```bash
 sudo apt update
-
 sudo apt upgrade -y
-Install
+```
+
+Download CloudWatch Agent
+
+```bash
 wget https://amazoncloudwatch-agent.s3.amazonaws.com/ubuntu/amd64/latest/amazon-cloudwatch-agent.deb
+```
 
+Install
+
+```bash
 sudo dpkg -i amazon-cloudwatch-agent.deb
+```
+
 Verify
+
+```bash
 amazon-cloudwatch-agent-ctl -a status
+```
 
-Phase 4 — Install CollectD
-Memory and disk metrics require CollectD on Ubuntu.
+---
+
+# Phase 4 – Install CollectD
+
+```bash
 sudo apt install collectd -y
+```
 
+Enable
+
+```bash
 sudo systemctl enable collectd
+```
 
+Start
+
+```bash
 sudo systemctl start collectd
+```
+
 Verify
+
+```bash
 systemctl status collectd
+```
 
-Phase 5 — Create CloudWatch Agent Configuration
+---
+
+# Phase 5 – Configure CloudWatch Agent
+
+Create directory
+
+```bash
 sudo mkdir -p /opt/aws/amazon-cloudwatch-agent/etc
-Create file
-sudo nano /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json
-Paste
-{
- "agent": {
-   "metrics_collection_interval": 60,
-   "run_as_user": "root"
- },
- "metrics": {
-   "namespace": "MonitorX",
-   "append_dimensions": {
-     "InstanceId": "${aws:InstanceId}"
-   },
-   "metrics_collected": {
-     "cpu": {
-       "measurement": [
-         "cpu_usage_idle",
-         "cpu_usage_user",
-         "cpu_usage_system"
-       ],
-       "metrics_collection_interval": 60,
-       "resources": [
-         "*"
-       ],
-       "totalcpu": true
-     },
-     "mem": {
-       "measurement": [
-         "mem_used_percent"
-       ],
-       "metrics_collection_interval": 60
-     },
-     "disk": {
-       "measurement": [
-         "used_percent"
-       ],
-       "metrics_collection_interval": 60,
-       "resources": [
-         "*"
-       ]
-     }
-   }
- }
-}
-Save.
+```
 
-Phase 6 — Start CloudWatch Agent
+Create configuration
+
+```bash
+sudo nano /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json
+```
+
+Paste
+
+```json
+{
+  "agent": {
+    "metrics_collection_interval": 60,
+    "run_as_user": "root"
+  },
+  "metrics": {
+    "namespace": "MonitorX",
+    "append_dimensions": {
+      "InstanceId": "${aws:InstanceId}"
+    },
+    "metrics_collected": {
+      "cpu": {
+        "measurement": [
+          "cpu_usage_idle",
+          "cpu_usage_user",
+          "cpu_usage_system"
+        ],
+        "metrics_collection_interval": 60,
+        "resources": [
+          "*"
+        ],
+        "totalcpu": true
+      },
+      "mem": {
+        "measurement": [
+          "mem_used_percent"
+        ],
+        "metrics_collection_interval": 60
+      },
+      "disk": {
+        "measurement": [
+          "used_percent"
+        ],
+        "metrics_collection_interval": 60,
+        "resources": [
+          "*"
+        ]
+      }
+    }
+  }
+}
+```
+
+---
+
+# Phase 6 – Start CloudWatch Agent
+
+```bash
 sudo /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
 -a fetch-config \
 -m ec2 \
 -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json \
 -s
-Check
-sudo systemctl status amazon-cloudwatch-agent
+```
 
-Phase 7 — Verify Metrics
-AWS Console
-CloudWatch
-↓
-Metrics
-↓
-Custom Namespace
-MonitorX
 Verify
-CPU
 
-Memory
+```bash
+sudo systemctl status amazon-cloudwatch-agent
+```
 
-Disk
+---
 
-Phase 8 — Create SNS Topic
-CloudWatch will invoke Lambda, which publishes to SNS.
-Open
-Amazon SNS
-Create Topic
-Standard
-Name
+# Phase 7 – Verify Metrics
+
+Navigate to
+
+CloudWatch
+
+→ Metrics
+
+→ Custom Namespace
+
+→ MonitorX
+
+Verify
+
+- CPU
+- Memory
+- Disk
+
+---
+
+# Phase 8 – Create SNS Topic
+
+Create Standard Topic
+
+```
 MonitorX-Alerts
-Create.
-Create Subscription
-Protocol
-Email
-Enter
+```
+
+Create Email Subscription
+
+```
 your-email@gmail.com
-Confirm the email.
+```
 
-Step 1: Create an S3 Bucket
-Open S3 Console.
-Click Create bucket.
-Bucket name:
+Confirm the subscription from your inbox.
 
- monitorx-alert-storage
+---
 
+# Phase 9 – Create Lambda Alert Storage
 
-Region:
+## Create S3 Bucket
 
- ap-south-1
+Bucket Name
 
+```
+monitorx-alert-storage
+```
 
-Leave the remaining settings as default.
-Click Create bucket.
+Region
 
-Step 2: Update the Lambda IAM Role
-Go to:
-IAM
-→ Roles
-→ Monitorx_lambda_role
-Click
-Add permissions
-→ Create inline policy
-Select JSON and paste:
+```
+ap-south-1
+```
+
+---
+
+## Add S3 Permission to Lambda Role
+
+Inline Policy
+
+```json
 {
- "Version": "2012-10-17",
- "Statement": [
-   {
-     "Sid": "StoreAlertInS3",
-     "Effect": "Allow",
-     "Action": [
-       "s3:PutObject"
-     ],
-     "Resource": "arn:aws:s3:::monitorx-alert-storage/*"
-   }
- ]
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "StoreAlertInS3",
+      "Effect": "Allow",
+      "Action": [
+        "s3:PutObject"
+      ],
+      "Resource": "arn:aws:s3:::monitorx-alert-storage/*"
+    }
+  ]
 }
-Click
-Next
-Policy name:
-Monitorx-S3-Policy
-Click
-Create policy
+```
 
-Step 3: Update Lambda Code
-Go to
-Lambda
-→ monitor-function
-→ Code
-Replace everything with:
+Policy Name
+
+```
+Monitorx-S3-Policy
+```
+
+---
+
+## Lambda Code
+
+```python
 import json
 import boto3
 from datetime import datetime
@@ -210,185 +339,261 @@ BUCKET_NAME = "monitorx-alert-storage"
 
 def lambda_handler(event, context):
 
-   timestamp = datetime.utcnow().strftime("%Y-%m-%d_%H-%M-%S")
+    timestamp = datetime.utcnow().strftime("%Y-%m-%d_%H-%M-%S")
 
-   filename = f"alerts/{timestamp}.json"
+    filename = f"alerts/{timestamp}.json"
 
-   s3.put_object(
-       Bucket=BUCKET_NAME,
-       Key=filename,
-       Body=json.dumps(event, indent=4),
-       ContentType="application/json"
-   )
+    s3.put_object(
+        Bucket=BUCKET_NAME,
+        Key=filename,
+        Body=json.dumps(event, indent=4),
+        ContentType="application/json"
+    )
 
-   return {
-       "statusCode": 200,
-       "body": "Alert Stored Successfully"
-   }
-Click
-Deploy
+    return {
+        "statusCode": 200,
+        "body": "Alert Stored Successfully"
+    }
+```
 
-Step 4: Add SNS Trigger to Lambda
-Go to
-Lambda
-→ monitor-function
-Click
-Add Trigger
-Choose
+Deploy the function.
+
+---
+
+## Add SNS Trigger
+
+Trigger Type
+
+```
 SNS
-Select
-Monitorx-alert
-Check
-Enable Trigger
-Click
-Add
-You should now see
-SNS
-Monitorx-alert
-under Triggers.
+```
 
-Phase 10 — Create CloudWatch Alarms
-CPU Alarm
-CloudWatch
-↓
-Alarms
-↓
-Create Alarm
+Topic
+
+```
+MonitorX-Alerts
+```
+
+---
+
+# Phase 10 – Create CloudWatch Alarms
+
+## CPU Alarm
+
 Metric
+
+```
 CPUUtilization
-Threshold
-Greater than
+```
 
-80%
+Threshold
+
+```
+> 80%
+```
+
 Evaluation
+
+```
 2 Datapoints
-
 2 Minutes
-Action
-Instead of sending SNS directly,
-Choose
-Invoke Lambda Function
-Select
-MonitorXAlertHandler
+```
 
-Memory Alarm
+Action
+
+```
+Invoke Lambda
+```
+
+---
+
+## Memory Alarm
+
 Namespace
+
+```
 MonitorX
+```
+
 Metric
+
+```
 mem_used_percent
+```
+
 Threshold
+
+```
 80%
-Invoke Lambda.
-
-Disk Alarm
-Metric
-used_percent
-Threshold
-85%
-Invoke Lambda.
-
-Phase 11 — Create CloudTrail
-CloudTrail
-↓
-Create Trail
-Trail Name
-MonitorX-Trail
-Apply to
-All Regions
-Create new S3 Bucket
-monitorx-audit-logs-xxxxx
-Enable
-Management Events
-
-Read
-
-Write
-Create Trail.
-Now every AWS API call is logged.
-
-Phase 12 — Verify CloudTrail
-Perform actions like:
-Create IAM user
-Stop EC2
-Start EC2
-Create S3 bucket
-Delete security group
-Then
-CloudTrail
-↓
-Event History
-You should see
-Who
-
-When
-
-IP Address
+```
 
 Action
 
-Console/Login
+```
+Invoke Lambda
+```
 
-CLI/API
+---
 
-Phase 13 — Verify S3 Logs
+## Disk Alarm
+
+Metric
+
+```
+used_percent
+```
+
+Threshold
+
+```
+85%
+```
+
+Action
+
+```
+Invoke Lambda
+```
+
+---
+
+# Phase 11 – Configure CloudTrail
+
+Create Trail
+
+```
+MonitorX-Trail
+```
+
+Scope
+
+```
+All Regions
+```
+
+Storage
+
+Create New S3 Bucket
+
+Enable
+
+- Read Events
+- Write Events
+
+---
+
+# Phase 12 – Verify CloudTrail
+
+Perform activities
+
+- Create IAM User
+- Stop EC2
+- Start EC2
+- Create S3 Bucket
+- Delete Security Group
+
 Open
-S3 Bucket
-monitorx-audit-logs
-You'll find
+
+CloudTrail
+
+→ Event History
+
+Verify
+
+- Username
+- Event Name
+- Source IP
+- Event Time
+
+---
+
+# Phase 13 – Verify Audit Logs
+
+Open CloudTrail S3 Bucket
+
+Verify
+
+```
 AWSLogs/
-
 AccountID/
-
 CloudTrail/
+```
 
-...
-JSON log files are stored there.
+JSON log files should be present.
 
-Phase 14 — Generate CPU Load
-Install stress tool
+---
+
+# Phase 14 – Test CPU Alarm
+
+Install stress
+
+```bash
 sudo apt install stress -y
-Run
+```
+
+Generate load
+
+```bash
 stress --cpu 2 --timeout 300
-CPU should exceed 80%.
-Flow
+```
+
+Expected Flow
+
+```
 EC2
-
 ↓
-
 CloudWatch Agent
-
 ↓
-
 CloudWatch
-
 ↓
-
 Alarm
-
 ↓
-
 Lambda
-
 ↓
-
 SNS
-
 ↓
-
 Email
+```
 
-Phase 15 — Generate Memory Load
-Install stress-ng
+---
+
+# Phase 15 – Test Memory Alarm
+
+Install
+
+```bash
 sudo apt install stress-ng -y
-Run
-stress-ng --vm 1 --vm-bytes 80% --timeout 300s
+```
 
-Phase 16 — Generate Disk Usage
-Create a large file
+Generate load
+
+```bash
+stress-ng --vm 1 --vm-bytes 80% --timeout 300s
+```
+
+---
+
+# Phase 16 – Test Disk Alarm
+
+Create large file
+
+```bash
 fallocate -l 5G testfile
-or
+```
+
+OR
+
+```bash
 dd if=/dev/zero of=testfile bs=1M count=5000
-Disk usage rises.
+```
+
+Expected Flow
+
+```
+EC2
+↓
+CloudWatch Agent
+↓
 CloudWatch
 ↓
 Alarm
@@ -398,3 +603,18 @@ Lambda
 SNS
 ↓
 Email
+```
+
+---
+
+# Project Outcome
+
+After completing this project, you will be able to:
+
+- Monitor EC2 CPU, memory, and disk usage.
+- Configure CloudWatch Agent for custom metrics.
+- Create CloudWatch dashboards and alarms.
+- Automate alerts using Lambda and SNS.
+- Store alert events in Amazon S3.
+- Audit AWS account activity using CloudTrail.
+- Build a production-style cloud monitoring solution suitable for portfolio and interview demonstrations.
